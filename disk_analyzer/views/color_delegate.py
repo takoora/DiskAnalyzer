@@ -2,6 +2,8 @@ from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle
 
+from disk_analyzer.utils.colors import text_color_for_bg
+
 
 COLOR_ROLE = Qt.UserRole + 100
 COLOR_LABEL_ROLE = Qt.UserRole + 101
@@ -56,8 +58,8 @@ class ColorLabelDelegate(QStyledItemDelegate):
         painter.setBrush(color)
         painter.drawRoundedRect(rect, 4, 4)
 
-        # White text
-        painter.setPen(QColor(255, 255, 255))
+        # Accessible text color based on background luminance
+        painter.setPen(text_color_for_bg(color))
         painter.drawText(rect, Qt.AlignCenter, label)
 
         painter.restore()

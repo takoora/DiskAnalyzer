@@ -3,7 +3,7 @@ from PySide6.QtGui import QPainter, QColor, QFont, QFontMetrics, QPen, QAction
 from PySide6.QtWidgets import QWidget, QToolTip, QVBoxLayout, QLabel, QHBoxLayout, QMenu
 
 from disk_analyzer.algorithms.squarify import squarify
-from disk_analyzer.utils.colors import color_for_extension, DIRECTORY_COLOR, darker_color
+from disk_analyzer.utils.colors import color_for_extension, DIRECTORY_COLOR, darker_color, text_color_for_bg
 from disk_analyzer.utils.formatting import format_size
 from disk_analyzer.utils.finder import show_in_finder, move_to_trash, permanent_delete, google_search, FILE_MANAGER_LABEL
 
@@ -225,7 +225,8 @@ class _TreemapCanvas(QWidget):
 
             rw, rh = rect.width(), rect.height()
             if rw > 50 and rh > 20:
-                painter.setPen(QColor(255, 255, 255))
+                txt_color = text_color_for_bg(color)
+                painter.setPen(txt_color)
                 text_rect = rect.adjusted(4, 3, -4, -3)
 
                 label = node.name
@@ -236,7 +237,7 @@ class _TreemapCanvas(QWidget):
                     elided = fm.elidedText(label, Qt.ElideMiddle, int(text_rect.width()))
                     painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignTop, elided)
                     painter.setFont(small_font)
-                    painter.setPen(QColor(220, 220, 220))
+                    painter.setPen(txt_color)
                     painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignBottom, size_label)
                 else:
                     painter.setFont(small_font)

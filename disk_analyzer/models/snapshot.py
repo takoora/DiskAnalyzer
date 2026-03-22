@@ -20,11 +20,16 @@ class ComparisonResult:
     size_delta: int = 0
 
 
+def _safe_str(s):
+    """Encode/decode to remove surrogate characters that break JSON on Windows."""
+    return s.encode("utf-8", errors="surrogateescape").decode("utf-8", errors="replace")
+
+
 def _node_to_dict(node):
     """Recursively convert a FileNode tree into a serializable dict."""
     d = {
-        "name": node.name,
-        "path": node.path,
+        "name": _safe_str(node.name),
+        "path": _safe_str(node.path),
         "size": node.cumulative_size if node.is_dir else node.own_size,
         "is_dir": node.is_dir,
     }
@@ -68,7 +73,7 @@ def save_snapshot(root_node, root_path):
     }
 
     with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(snapshot, f, ensure_ascii=False)
+        json.dump(snapshot, f, ensure_ascii=True)
 
     return filepath
 

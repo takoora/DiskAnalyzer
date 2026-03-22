@@ -1,5 +1,45 @@
 from PySide6.QtGui import QColor
 
+
+# ---------------------------------------------------------------------------
+# WCAG 2.0 accessibility helpers
+# ---------------------------------------------------------------------------
+
+def _relative_luminance(r, g, b):
+    """WCAG 2.0 relative luminance."""
+    def adjust(c):
+        c = c / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * adjust(r) + 0.7152 * adjust(g) + 0.0722 * adjust(b)
+
+
+def text_color_for_bg(bg_color):
+    """Return white or black QColor for readable text on the given background."""
+    lum = _relative_luminance(bg_color.red(), bg_color.green(), bg_color.blue())
+    if 1.05 / (lum + 0.05) >= 4.5:
+        return QColor(255, 255, 255)
+    return QColor(0, 0, 0)
+
+
+def _ensure_accessible(color):
+    """Darken a color if it doesn't have sufficient contrast with white text."""
+    r, g, b = color.red(), color.green(), color.blue()
+    lum = _relative_luminance(r, g, b)
+    if 1.05 / (lum + 0.05) >= 4.5:
+        return color
+    c = QColor(color)
+    for _ in range(10):
+        c = c.darker(115)
+        lum = _relative_luminance(c.red(), c.green(), c.blue())
+        if 1.05 / (lum + 0.05) >= 4.5:
+            return c
+    return c
+
+
+# ---------------------------------------------------------------------------
+# Color palettes
+# ---------------------------------------------------------------------------
+
 # Vibrant, high-saturation colors for treemap visibility on dark background
 EXTENSION_GROUPS = {
     "images": {
@@ -40,10 +80,12 @@ EXTENSION_GROUPS = {
     },
 }
 
+# Build extension-to-color map, ensuring all colors are accessible
 _EXT_TO_COLOR = {}
-for group in EXTENSION_GROUPS.values():
-    for ext in group["extensions"]:
-        _EXT_TO_COLOR[ext] = group["color"]
+for _group in EXTENSION_GROUPS.values():
+    _acc_color = _ensure_accessible(_group["color"])
+    for _ext in _group["extensions"]:
+        _EXT_TO_COLOR[_ext] = _acc_color
 
 # Wide variety hash palette — no greys, all saturated
 _HASH_PALETTE = [
@@ -66,8 +108,17 @@ _HASH_PALETTE = [
 ]
 
 DIRECTORY_COLOR = QColor(55, 71, 79)   # BlueGrey 800
-UNKNOWN_COLOR = QColor(144, 164, 174)  # BlueGrey 300 (not grey — has color)
+UNKNOWN_COLOR = _ensure_accessible(QColor(144, 164, 174))  # BlueGrey 300
 
+# Track used color RGB tuples to avoid duplicates
+_USED_COLORS = set()
+for _c in _EXT_TO_COLOR.values():
+    _USED_COLORS.add((_c.red(), _c.green(), _c.blue()))
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def color_for_extension(ext):
     if not ext:
@@ -76,8 +127,32 @@ def color_for_extension(ext):
     cached = _EXT_TO_COLOR.get(ext)
     if cached:
         return cached
-    idx = hash(ext) % len(_HASH_PALETTE)
-    color = _HASH_PALETTE[idx]
+
+    # Try palette slots starting from hash, skip if color already used
+    start = hash(ext) % len(_HASH_PALETTE)
+    for offset in range(len(_HASH_PALETTE)):
+        idx = (start + offset) % len(_HASH_PALETTE)
+        color = _ensure_accessible(_HASH_PALETTE[idx])
+        key = (color.red(), color.green(), color.blue())
+        if key not in _USED_COLORS:
+            _USED_COLORS.add(key)
+            _EXT_TO_COLOR[ext] = color
+            return color
+
+    # All palette colors used — generate a unique variant by hue-shifting
+    base = _HASH_PALETTE[start]
+    h, s, l, _ = base.getHslF()
+    for i in range(1, 50):
+        shifted = QColor.fromHslF((h + i * 0.037) % 1.0, max(s, 0.5), max(l * 0.7, 0.25))
+        shifted = _ensure_accessible(shifted)
+        key = (shifted.red(), shifted.green(), shifted.blue())
+        if key not in _USED_COLORS:
+            _USED_COLORS.add(key)
+            _EXT_TO_COLOR[ext] = shifted
+            return shifted
+
+    # Fallback — shouldn't happen
+    color = _ensure_accessible(_HASH_PALETTE[start])
     _EXT_TO_COLOR[ext] = color
     return color
 
