@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 
+from disk_analyzer.utils.logging_config import setup_logging, get_logger
 from disk_analyzer.views.main_window import MainWindow
 
 _RES_DIR = os.path.join(os.path.dirname(__file__), "resources", "icons")
@@ -19,6 +20,10 @@ else:
 
 
 def main():
+    setup_logging()
+    log = get_logger("main")
+    log.info("DiskAnalyzer starting")
+
     app = QApplication(sys.argv)
     app.setApplicationName("DiskAnalyzer")
     app.setWindowIcon(QIcon(ICON_PATH))
@@ -44,6 +49,7 @@ def main():
 
     window = MainWindow()
     window.show()
+    log.info("Main window shown")
     sys.exit(app.exec())
 
 

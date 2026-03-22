@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QAbstractTableModel, Signal
+from PySide6.QtCore import Qt, QAbstractTableModel, QThread, Signal
 from PySide6.QtWidgets import QTableView, QHeaderView, QAbstractItemView, QMenu
 from PySide6.QtGui import QColor
 
@@ -11,26 +11,57 @@ from disk_analyzer.views.color_delegate import ColorLabelDelegate, COLOR_ROLE
 COLUMNS = ["Extension", "Total Size", "Files", "%"]
 
 
-class FileTypeModel(QAbstractTableModel):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._data = []
-        self._total_size = 0
-        self._highlighted_ext = None
+class _FileTypeBuilder(QThread):
+    """Aggregate file types off the main thread."""
+    done = Signal(list, int)  # (sorted_data, total_size)
 
-    def set_root(self, root_node):
-        self.beginResetModel()
+    def __init__(self, root_node, parent=None):
+        super().__init__(parent)
+        self._root_node = root_node
+
+    def run(self):
         ext_map = {}
-        for f in root_node.all_files():
+        for f in self._root_node.all_files():
             ext = f.extension or "(no extension)"
             if ext not in ext_map:
                 ext_map[ext] = [0, 0]
             ext_map[ext][0] += f.own_size
             ext_map[ext][1] += 1
-        self._data = sorted(ext_map.items(), key=lambda x: x[1][0], reverse=True)
-        self._total_size = sum(v[0] for _, v in self._data)
+        data = sorted(ext_map.items(), key=lambda x: x[1][0], reverse=True)
+        total_size = sum(v[0] for _, v in data)
+        self.done.emit(data, total_size)
+
+
+class FileTypeModel(QAbstractTableModel):
+    loading_finished = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._data = []
+        self._total_size = 0
+        self._highlighted_ext = None
+        self._builder = None
+
+    def set_root(self, root_node):
+        """Kick off background aggregation of file types."""
+        self.beginResetModel()
+        self._data = []
+        self._total_size = 0
         self._highlighted_ext = None
         self.endResetModel()
+
+        self._builder = _FileTypeBuilder(root_node, self)
+        self._builder.done.connect(self._on_build_done)
+        self._builder.start()
+
+    def _on_build_done(self, data, total_size):
+        self.beginResetModel()
+        self._data = data
+        self._total_size = total_size
+        self._highlighted_ext = None
+        self.endResetModel()
+        self._builder = None
+        self.loading_finished.emit()
 
     def clear(self):
         self.beginResetModel()

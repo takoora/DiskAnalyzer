@@ -110,7 +110,6 @@ class FileListView(QWidget):
     def set_root(self, root_node):
         self._search_input.clear()
         self._model.set_root(root_node)
-        self._table.resizeColumnToContents(1)
 
     def clear(self):
         self._search_input.clear()

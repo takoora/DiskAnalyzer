@@ -8,6 +8,9 @@ from PySide6.QtCore import QThread, Signal
 
 from disk_analyzer.models.file_node import FileNode
 from disk_analyzer.models.bulk_readdir import bulk_readdir
+from disk_analyzer.utils.logging_config import get_logger
+
+log = get_logger("scan_worker")
 
 SKIP_DIRS = {
     ".Spotlight-V100", ".fseventsd", ".Trashes",
@@ -44,10 +47,12 @@ class ScanWorker(QThread):
 
     def run(self):
         try:
+            log.info("Scan worker started for: %s", self.root_path)
             self._disk_used = self._get_disk_used(self.root_path)
 
             # Phase 1: shallow scan to discover work items
             root_node, work_items = self._shallow_scan(self.root_path, depth=0)
+            log.debug("Shallow scan done — %d work items queued", len(work_items))
 
             if self._cancelled:
                 return
@@ -80,8 +85,10 @@ class ScanWorker(QThread):
             if not self._cancelled:
                 # Phase 3: single post-order pass to compute cumulative stats
                 root_node.finalize()
+                log.info("Scan complete — %d files scanned", self._files_scanned)
                 self.finished.emit(root_node)
         except Exception as e:
+            log.exception("Scan failed")
             self.error.emit(str(e))
 
     def requestInterruption(self):

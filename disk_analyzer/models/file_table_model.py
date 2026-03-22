@@ -1,11 +1,31 @@
+import heapq
 import os
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QAbstractTableModel
+from PySide6.QtCore import Qt, QAbstractTableModel, QThread, Signal
 from PySide6.QtGui import QColor
 from disk_analyzer.utils.formatting import format_size, format_percent, calc_percent
 from disk_analyzer.utils.colors import color_for_extension
 from disk_analyzer.views.color_delegate import COLOR_ROLE
+
+
+class _FileListBuilder(QThread):
+    """Build the sorted file list off the main thread."""
+    done = Signal(list, int)  # (sorted_files, total_size)
+
+    def __init__(self, root_node, max_files, parent=None):
+        super().__init__(parent)
+        self._root_node = root_node
+        self._max_files = max_files
+
+    def run(self):
+        all_files = list(self._root_node.all_files())
+        total_size = sum(f.own_size for f in all_files)
+        if len(all_files) <= self._max_files:
+            result = sorted(all_files, key=lambda f: f.own_size, reverse=True)
+        else:
+            result = heapq.nlargest(self._max_files, all_files, key=lambda f: f.own_size)
+        self.done.emit(result, total_size)
 
 
 COLUMNS = ["", "Size", "%", "Name", "Modified", "Path", "Extension"]
@@ -30,6 +50,8 @@ SEARCH_TERM_ROLE = Qt.UserRole + 200
 
 
 class FileTableModel(QAbstractTableModel):
+    loading_finished = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._all_files = []  # full unfiltered list
@@ -38,22 +60,34 @@ class FileTableModel(QAbstractTableModel):
         self._highlighted_paths = set()
         self._search_term = ""
         self._filename_only = False
+        self._builder = None
 
     MAX_FILES = 100_000
 
     def set_root(self, root_node):
+        """Kick off background building of the file list."""
+        # Clear current data immediately
         self.beginResetModel()
-        import heapq
-        all_files = list(root_node.all_files())
-        self._total_size = sum(f.own_size for f in all_files)
-        if len(all_files) <= self.MAX_FILES:
-            self._all_files = sorted(all_files, key=lambda f: f.own_size, reverse=True)
-        else:
-            self._all_files = heapq.nlargest(self.MAX_FILES, all_files, key=lambda f: f.own_size)
-        self._files = self._all_files
+        self._all_files = []
+        self._files = []
+        self._total_size = 0
         self._search_term = ""
         self._highlighted_paths = set()
         self.endResetModel()
+
+        # Build the sorted list in a background thread
+        self._builder = _FileListBuilder(root_node, self.MAX_FILES, self)
+        self._builder.done.connect(self._on_build_done)
+        self._builder.start()
+
+    def _on_build_done(self, files, total_size):
+        self.beginResetModel()
+        self._all_files = files
+        self._files = files
+        self._total_size = total_size
+        self.endResetModel()
+        self._builder = None
+        self.loading_finished.emit()
 
     def clear(self):
         self.beginResetModel()

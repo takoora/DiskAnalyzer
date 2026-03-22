@@ -8,15 +8,19 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication,
     QLineEdit, QPushButton, QFileDialog, QProgressBar,
     QTabWidget, QLabel, QStatusBar, QMenuBar, QSizePolicy,
-    QSplitter, QToolButton, QMenu,
+    QSplitter, QToolButton, QMenu, QGraphicsOpacityEffect,
 )
+from PySide6.QtGui import QPainter, QColor, QFont
 
 IS_MAC = sys.platform == "darwin"
 _MOD = "⌘" if IS_MAC else "Ctrl+"
 _MOD_SHIFT = "⌘⇧" if IS_MAC else "Ctrl+Shift+"
 _DEFAULT_PATH = "/" if IS_MAC else "C:\\"
 
+from disk_analyzer.utils.logging_config import get_logger
 from disk_analyzer.models.scan_worker import ScanWorker, NUM_WORKERS
+
+log = get_logger("main_window")
 from disk_analyzer.views.treemap_widget import TreemapWidget
 from disk_analyzer.views.folder_tree_view import FolderTreeView
 from disk_analyzer.views.file_list_view import FileListView
@@ -25,6 +29,43 @@ from disk_analyzer.views.duplicate_view import DuplicateView
 from disk_analyzer.views.snapshot_view import SnapshotView
 from disk_analyzer.views.support_view import SupportView
 from disk_analyzer.utils.formatting import format_size, format_count
+
+
+class LoadingOverlay(QWidget):
+    """Semi-transparent overlay that shows a status message over the tab area."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self.setVisible(False)
+        self._text = "Loading..."
+
+    def set_text(self, text):
+        self._text = text
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(30, 30, 30, 180))
+        painter.setPen(QColor(200, 200, 200))
+        font = QFont()
+        font.setPointSize(16)
+        painter.setFont(font)
+        painter.drawText(self.rect(), Qt.AlignCenter, self._text)
+        painter.end()
+
+    def show_over(self, widget, text=None):
+        """Position over the given widget and show."""
+        if text:
+            self._text = text
+        self.setParent(widget)
+        self.setGeometry(widget.rect())
+        self.raise_()
+        self.setVisible(True)
+        QApplication.processEvents()
+
+    def hide_overlay(self):
+        self.setVisible(False)
 
 
 class MainWindow(QMainWindow):
@@ -171,6 +212,10 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._support, "☕ Support")
 
         layout.addWidget(self._tabs, 1)
+
+        # Loading overlay for tab switches
+        self._loading_overlay = LoadingOverlay()
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
         # Cross-highlighting signals
         self._folder_tree.folder_selected.connect(self._on_folder_selected)
@@ -346,7 +391,9 @@ class MainWindow(QMainWindow):
         self._elapsed_label.setText("0s")
         self._elapsed_timer.start()
 
-        # Start worker
+        # Show overlay during the entire scan
+        self._loading_overlay.show_over(self._tabs, "Scanning...")
+        log.info("Scan started: %s", path)
         self._scan_worker = ScanWorker(path)
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_worker.error.connect(self._on_scan_error)
@@ -361,7 +408,9 @@ class MainWindow(QMainWindow):
             self._cancel_btn.setEnabled(False)
             self._progress_bar.setVisible(False)
             self._progress_label.setVisible(False)
+            self._loading_overlay.hide_overlay()
             self._status_label.setText("Scan cancelled")
+            log.info("Scan cancelled by user")
 
     def _poll_progress(self):
         if not self._scan_worker or not self._scan_worker.isRunning():
@@ -388,6 +437,11 @@ class MainWindow(QMainWindow):
         elapsed = time.monotonic() - self._scan_start_time
         self._elapsed_label.setText(self._format_elapsed(elapsed))
 
+        log.info("Scan finished in %.1fs — %s files, %s folders, %s",
+                 elapsed, format_count(root_node.file_count),
+                 format_count(root_node.dir_count),
+                 format_size(root_node.cumulative_size))
+
         self._root_node = root_node
         self._scan_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
@@ -413,34 +467,69 @@ class MainWindow(QMainWindow):
             )
             self._disk_usage_label.setVisible(True)
 
-        # Populate views one at a time, processing events between each
-        # to keep the UI responsive on large scans (Windows especially)
-        app = QApplication.instance()
+        # Update overlay text and populate views in staggered steps so the
+        # event loop can breathe between each heavy set_root() call.
+        log.info("Populating views")
+        self._loading_overlay.set_text("Loading views...")
+        QApplication.processEvents()
+        self._load_views_staggered(root_node)
 
-        self._status_label.setText("Loading treemap...")
-        app.processEvents()
-        self._treemap.set_root(root_node)
+    def _load_views_staggered(self, root_node):
+        """Load each view in its own event-loop tick to avoid 'Not Responding'."""
+        self._file_list_ready = False
+        steps = [
+            ("Loading treemap...",    lambda: self._treemap.set_root(root_node)),
+            ("Loading folder tree...", lambda: self._folder_tree.set_root(root_node)),
+            ("Loading file list...",  lambda: self._start_file_list_load(root_node)),
+            ("Loading file types...", lambda: self._start_file_type_load(root_node)),
+            ("Preparing duplicates...", lambda: self._duplicates.set_root(root_node)),
+            ("Preparing snapshots...", lambda: self._snapshots.set_root(
+                root_node, self._path_edit.text().strip())),
+        ]
+        self._pending_load_steps = steps
+        self._run_next_load_step()
 
-        self._status_label.setText("Loading folder tree...")
-        app.processEvents()
-        self._folder_tree.set_root(root_node)
-
-        self._status_label.setText("Loading file list...")
-        app.processEvents()
+    def _start_file_list_load(self, root_node):
+        """Kick off file list build in background thread."""
+        self._file_list._model.loading_finished.connect(
+            self._on_file_list_ready, Qt.SingleShotConnection)
         self._file_list.set_root(root_node)
 
-        self._status_label.setText("Loading file types...")
-        app.processEvents()
+    def _on_file_list_ready(self):
+        self._file_list_ready = True
+        self._file_list._table.resizeColumnToContents(1)
+        log.debug("File list background build complete")
+
+    def _start_file_type_load(self, root_node):
+        """Kick off file type aggregation in background thread."""
+        self._file_types._model.loading_finished.connect(
+            self._on_file_type_ready, Qt.SingleShotConnection)
         self._file_types.set_root(root_node)
 
-        self._duplicates.set_root(root_node)
-        self._snapshots.set_root(root_node, self._path_edit.text().strip())
+    def _on_file_type_ready(self):
+        log.debug("File type background build complete")
 
-        self._status_label.setText(
-            f"{format_count(root_node.file_count)} files, "
-            f"{format_count(root_node.dir_count)} folders, "
-            f"Total: {format_size(root_node.cumulative_size)}"
-        )
+    def _run_next_load_step(self):
+        if not self._pending_load_steps:
+            # All done — hide overlay and show final status
+            self._loading_overlay.hide_overlay()
+            log.info("Loading overlay hidden — all views loaded")
+            node = self._root_node
+            self._status_label.setText(
+                f"{format_count(node.file_count)} files, "
+                f"{format_count(node.dir_count)} folders, "
+                f"Total: {format_size(node.cumulative_size)}"
+            )
+            return
+        label, action = self._pending_load_steps.pop(0)
+        self._status_label.setText(label)
+        self._loading_overlay.set_text(label)
+        log.debug(label)
+        QApplication.processEvents()
+        t = time.monotonic()
+        action()
+        log.debug("%s done in %.3fs", label, time.monotonic() - t)
+        QTimer.singleShot(0, self._run_next_load_step)
 
     def _on_scan_error(self, error_msg):
         self._elapsed_timer.stop()
@@ -448,7 +537,9 @@ class MainWindow(QMainWindow):
         self._cancel_btn.setEnabled(False)
         self._progress_bar.setVisible(False)
         self._progress_label.setVisible(False)
+        self._loading_overlay.hide_overlay()
         self._status_label.setText(f"Error: {error_msg}")
+        log.error("Scan error: %s", error_msg)
 
     def _update_elapsed(self):
         elapsed = time.monotonic() - self._scan_start_time
@@ -462,6 +553,15 @@ class MainWindow(QMainWindow):
             return f"{s}s"
         m, s = divmod(s, 60)
         return f"{m}m {s}s"
+
+    def _on_tab_changed(self, index):
+        """Show loading overlay briefly while the tab content renders."""
+        if self._root_node is None:
+            return
+        tab_name = self._tabs.tabText(index)
+        log.debug("Tab switched to '%s' — showing overlay", tab_name)
+        self._loading_overlay.show_over(self._tabs)
+        QTimer.singleShot(50, self._loading_overlay.hide_overlay)
 
     # --- Cross-highlighting ---
 
@@ -490,9 +590,10 @@ class MainWindow(QMainWindow):
         self._folder_tree.highlight_paths(folder_paths)
 
     def _on_file_selected(self, node):
-        """File clicked: highlight that single file across views."""
-        paths = {node.path}
-        self._folder_tree.highlight_paths(paths)
+        """File clicked: switch to Disk Space tab and reveal in folder tree."""
+        self._tabs.setCurrentIndex(0)
+        self._folder_tree.reveal_node(node)
+        self._folder_tree.highlight_paths({node.path})
         self._file_types.highlight_ext(node.extension or "(no extension)")
 
     def _on_show_in_tree(self, node):

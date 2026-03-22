@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from disk_analyzer.utils.logging_config import get_logger
+
+log = get_logger("snapshot")
+
 
 SNAPSHOT_DIR = os.path.join(os.path.expanduser("~"), ".diskanalyzer", "snapshots")
 SNAPSHOT_VERSION = 1
@@ -21,8 +25,8 @@ class ComparisonResult:
 
 
 def _safe_str(s):
-    """Encode/decode to remove surrogate characters that break JSON on Windows."""
-    return s.encode("utf-8", errors="surrogateescape").decode("utf-8", errors="replace")
+    """Replace any surrogate characters (U+D800–U+DFFF) that break JSON on Windows."""
+    return ''.join(c if not ('\ud800' <= c <= '\udfff') else '\ufffd' for c in s)
 
 
 def _node_to_dict(node):
@@ -67,7 +71,7 @@ def save_snapshot(root_node, root_path):
     snapshot = {
         "version": SNAPSHOT_VERSION,
         "timestamp": now.isoformat(),
-        "root_path": root_path,
+        "root_path": _safe_str(root_path),
         "scan_date": now.strftime("%Y-%m-%d %H:%M:%S"),
         "tree": _node_to_dict(root_node),
     }
@@ -75,6 +79,7 @@ def save_snapshot(root_node, root_path):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=True)
 
+    log.info("Snapshot saved: %s", filepath)
     return filepath
 
 
