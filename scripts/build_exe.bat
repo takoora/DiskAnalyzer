@@ -35,7 +35,7 @@ if %errorlevel% neq 0 (
 
 REM Build the exe with PyInstaller
 echo ==^> Running PyInstaller...
-set ICON_FILE=%PROJECT_DIR%\resources\icons\AppIcon.ico
+set ICON_FILE=%PROJECT_DIR%\resources\icons\app_icon.ico
 
 python -m PyInstaller ^
     --name "%APP_NAME%" ^
@@ -48,6 +48,7 @@ python -m PyInstaller ^
     --workpath "%BUILD_DIR%\pyinstaller" ^
     --specpath "%BUILD_DIR%" ^
     --add-data "%PROJECT_DIR%\disk_analyzer;disk_analyzer" ^
+    --add-data "%PROJECT_DIR%\resources;resources" ^
     "%PROJECT_DIR%\main.py"
 
 if not exist "%DIST_DIR%\%APP_NAME%\%APP_NAME%.exe" (

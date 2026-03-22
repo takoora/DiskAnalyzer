@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,26 +14,12 @@ SKIP_DIRS = {
     ".DocumentRevisions-V100", ".TemporaryItems",
 }
 
-# APFS firmlink targets and system volumes to skip:
-# - /System/Volumes/Data: mirrors root via firmlinks (avoids double-counting)
-# - /System/Volumes/Preboot: macOS boot/cryptex volumes (not user data)
-# - /System/Volumes/Recovery: macOS recovery partition
-# - /System/Volumes/VM: virtual memory swap files
-# - /System/Volumes/Update: macOS update staging
+# Only skip the APFS firmlink mirror to avoid double-counting.
+# /System/Volumes/Data contains firmlinks that duplicate /, /Users, /Applications, etc.
+# All other system volumes (Preboot, Recovery, VM, etc.) are real disk usage and should be shown.
 SKIP_PATHS = {
     "/System/Volumes/Data",
-    "/System/Volumes/Preboot",
-    "/System/Volumes/Recovery",
-    "/System/Volumes/VM",
-    "/System/Volumes/Update",
-    "/System/Volumes/xarts",
-    "/System/Volumes/iSCPreboot",
-    "/System/Volumes/Hardware",
-    "/System/Volumes/BaseSystem",
-    "/System/Volumes/FieldService",
-    "/System/Volumes/FieldServiceDiagnostic",
-    "/System/Volumes/FieldServiceRepair",
-}
+} if sys.platform == "darwin" else set()
 
 PARALLEL_DEPTH = 3
 NUM_WORKERS = 4
@@ -103,10 +90,9 @@ class ScanWorker(QThread):
 
     def _get_disk_used(self, path):
         try:
-            st = os.statvfs(path)
-            total = st.f_blocks * st.f_frsize
-            free = st.f_bfree * st.f_frsize
-            return total - free
+            import shutil
+            usage = shutil.disk_usage(path)
+            return usage.used
         except OSError:
             return 0
 

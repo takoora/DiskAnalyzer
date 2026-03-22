@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 
 from PySide6.QtCore import Qt, QTimer
@@ -9,6 +10,11 @@ from PySide6.QtWidgets import (
     QTabWidget, QLabel, QStatusBar, QMenuBar, QSizePolicy,
     QSplitter, QToolButton, QMenu,
 )
+
+IS_MAC = sys.platform == "darwin"
+_MOD = "⌘" if IS_MAC else "Ctrl+"
+_MOD_SHIFT = "⌘⇧" if IS_MAC else "Ctrl+Shift+"
+_DEFAULT_PATH = "/" if IS_MAC else "C:\\"
 
 from disk_analyzer.models.scan_worker import ScanWorker, NUM_WORKERS
 from disk_analyzer.views.treemap_widget import TreemapWidget
@@ -51,17 +57,17 @@ class MainWindow(QMainWindow):
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
 
-        self._path_edit = QLineEdit("/")
+        self._path_edit = QLineEdit(_DEFAULT_PATH)
         self._path_edit.setPlaceholderText("Select a folder to analyze...")
         self._path_edit.returnPressed.connect(self._start_scan)
         toolbar.addWidget(self._path_edit, 1)
 
-        browse_btn = QPushButton("Browse  ⌘O")
+        browse_btn = QPushButton(f"Browse  {_MOD}O")
         browse_btn.setShortcut(QKeySequence.Open)
         browse_btn.clicked.connect(self._browse)
         toolbar.addWidget(browse_btn)
 
-        self._scan_btn = QPushButton("Scan  ⌘R")
+        self._scan_btn = QPushButton(f"Scan  {_MOD}R")
         self._scan_btn.setShortcut(QKeySequence("Ctrl+R"))
         self._scan_btn.setDefault(True)
         self._scan_btn.clicked.connect(self._start_scan)
@@ -69,7 +75,7 @@ class MainWindow(QMainWindow):
 
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setShortcut(QKeySequence("Ctrl+."))
-        self._cancel_btn.setToolTip("Cancel the current scan (⌘.)")
+        self._cancel_btn.setToolTip(f"Cancel the current scan ({_MOD}.)")
         self._cancel_btn.setEnabled(False)
         self._cancel_btn.clicked.connect(self._cancel_scan)
         toolbar.addWidget(self._cancel_btn)
@@ -311,9 +317,10 @@ class MainWindow(QMainWindow):
 
         # Get disk info for status bar
         try:
-            st = os.statvfs(path)
-            self._disk_total = st.f_blocks * st.f_frsize
-            self._disk_used = (st.f_blocks - st.f_bfree) * st.f_frsize
+            import shutil
+            usage = shutil.disk_usage(path)
+            self._disk_total = usage.total
+            self._disk_used = usage.used
         except OSError:
             self._disk_total = 0
             self._disk_used = 0

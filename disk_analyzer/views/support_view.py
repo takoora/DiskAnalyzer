@@ -1,4 +1,5 @@
 import os
+import sys
 import webbrowser
 
 from PySide6.QtCore import Qt
@@ -7,9 +8,9 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
 )
 
-QR_PATH = os.path.join(
-    os.path.dirname(__file__), os.pardir, os.pardir, "resources", "bmc_qr.png"
-)
+# When bundled by PyInstaller, resources are extracted to sys._MEIPASS
+_BASE_DIR = getattr(sys, "_MEIPASS", os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+QR_PATH = os.path.join(_BASE_DIR, "resources", "bmc_qr.png")
 BMC_URL = "https://buymeacoffee.com/takoora"
 GITHUB_SPONSOR_URL = "https://github.com/sponsors/takoora"
 GITHUB_REPO_URL = "https://github.com/takoora/DiskAnalyzer"

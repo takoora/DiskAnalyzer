@@ -43,6 +43,7 @@ python3 -m PyInstaller \
     --workpath "$BUILD_DIR/pyinstaller" \
     --specpath "$BUILD_DIR" \
     --add-data "$PROJECT_DIR/disk_analyzer:disk_analyzer" \
+    --add-data "$PROJECT_DIR/resources:resources" \
     "$PROJECT_DIR/main.py"
 
 APP_BUNDLE="$DIST_DIR/${APP_NAME}.app"

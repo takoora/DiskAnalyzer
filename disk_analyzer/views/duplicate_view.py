@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QModelIndex, Signal
@@ -9,6 +10,8 @@ from PySide6.QtWidgets import (
     QMessageBox, QAbstractItemView, QSizePolicy, QDialog,
     QRadioButton, QButtonGroup, QScrollArea, QFrame, QGridLayout,
 )
+
+_MOD = "⌘" if sys.platform == "darwin" else "Ctrl+"
 
 from disk_analyzer.models.duplicate_finder import DuplicateFinder, MatchStrategy
 from disk_analyzer.utils.colors import _HASH_PALETTE
@@ -72,13 +75,13 @@ class DuplicateView(QWidget):
 
         self._find_btn = QPushButton("Find Duplicates")
         self._find_btn.setShortcut("Ctrl+D")
-        self._find_btn.setToolTip("Scan a folder first, then click to find duplicates (⌘D)")
+        self._find_btn.setToolTip(f"Scan a folder first, then click to find duplicates ({_MOD}D)")
         self._find_btn.clicked.connect(self._start_search)
         top_bar.addWidget(self._find_btn)
 
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setShortcut("Ctrl+.")
-        self._cancel_btn.setToolTip("Cancel the duplicate search (⌘.)")
+        self._cancel_btn.setToolTip(f"Cancel the duplicate search ({_MOD}.)")
         self._cancel_btn.setEnabled(False)
         self._cancel_btn.clicked.connect(self._cancel_search)
         top_bar.addWidget(self._cancel_btn)

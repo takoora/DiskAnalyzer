@@ -7,7 +7,15 @@ from PySide6.QtGui import QIcon
 
 from disk_analyzer.views.main_window import MainWindow
 
-ICON_PATH = os.path.join(os.path.dirname(__file__), "resources", "icons", "app_icon.svg")
+_RES_DIR = os.path.join(os.path.dirname(__file__), "resources", "icons")
+# When bundled by PyInstaller, resources are in sys._MEIPASS
+if hasattr(sys, "_MEIPASS"):
+    _RES_DIR = os.path.join(sys._MEIPASS, "resources", "icons")
+
+if sys.platform == "win32":
+    ICON_PATH = os.path.join(_RES_DIR, "app_icon.ico")
+else:
+    ICON_PATH = os.path.join(_RES_DIR, "app_icon.svg")
 
 
 def main():

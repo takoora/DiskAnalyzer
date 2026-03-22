@@ -136,7 +136,8 @@ def _fallback_readdir(dir_path):
                 else:
                     try:
                         st = entry.stat(follow_symlinks=False)
-                        size = st.st_blocks * 512
+                        # st_blocks is not available on Windows
+                        size = st.st_blocks * 512 if hasattr(st, "st_blocks") else st.st_size
                     except OSError:
                         size = 0
                     results.append((entry.name, False, size))

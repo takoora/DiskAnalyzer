@@ -1,4 +1,5 @@
 import os
+import sys
 
 from PySide6.QtCore import Qt, QAbstractTableModel, Signal, QThread
 from PySide6.QtGui import QPainter, QColor, QFont, QFontMetrics, QPen
@@ -20,6 +21,9 @@ COLOR_RED = "#ef5350"
 COLOR_GREEN = "#66bb6a"
 COLOR_TEXT = "#dddddd"
 COLOR_MUTED = "#999999"
+
+_MOD = "⌘" if sys.platform == "darwin" else "Ctrl+"
+_MOD_SHIFT = "⌘⇧" if sys.platform == "darwin" else "Ctrl+Shift+"
 
 
 class _SaveWorker(QThread):
@@ -360,7 +364,7 @@ class SnapshotView(QWidget):
 
         self._save_btn = QPushButton("Save Snapshot")
         self._save_btn.setShortcut("Ctrl+S")
-        self._save_btn.setToolTip("Save current scan as a snapshot (⌘S)")
+        self._save_btn.setToolTip(f"Save current scan as a snapshot ({_MOD}S)")
         self._save_btn.setFixedWidth(130)
         self._save_btn.clicked.connect(self._on_save)
         top_panel.addWidget(self._save_btn)
@@ -396,7 +400,7 @@ class SnapshotView(QWidget):
 
         self._compare_btn = QPushButton("Compare")
         self._compare_btn.setShortcut("Ctrl+Shift+C")
-        self._compare_btn.setToolTip("Compare selected snapshots (⌘⇧C)")
+        self._compare_btn.setToolTip(f"Compare selected snapshots ({_MOD_SHIFT}C)")
         self._compare_btn.setFixedWidth(100)
         self._compare_btn.clicked.connect(self._on_compare)
         top_panel.addWidget(self._compare_btn)
