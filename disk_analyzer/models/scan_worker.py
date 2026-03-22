@@ -13,14 +13,25 @@ SKIP_DIRS = {
     ".DocumentRevisions-V100", ".TemporaryItems",
 }
 
-# APFS firmlink targets that mirror real paths — skip to avoid double-counting
+# APFS firmlink targets and system volumes to skip:
+# - /System/Volumes/Data: mirrors root via firmlinks (avoids double-counting)
+# - /System/Volumes/Preboot: macOS boot/cryptex volumes (not user data)
+# - /System/Volumes/Recovery: macOS recovery partition
+# - /System/Volumes/VM: virtual memory swap files
+# - /System/Volumes/Update: macOS update staging
 SKIP_PATHS = {
-    "/System/Volumes/Data/Users",
-    "/System/Volumes/Data/Applications",
-    "/System/Volumes/Data/Library",
-    "/System/Volumes/Data/private",
-    "/System/Volumes/Data/opt",
-    "/System/Volumes/Data/usr",
+    "/System/Volumes/Data",
+    "/System/Volumes/Preboot",
+    "/System/Volumes/Recovery",
+    "/System/Volumes/VM",
+    "/System/Volumes/Update",
+    "/System/Volumes/xarts",
+    "/System/Volumes/iSCPreboot",
+    "/System/Volumes/Hardware",
+    "/System/Volumes/BaseSystem",
+    "/System/Volumes/FieldService",
+    "/System/Volumes/FieldServiceDiagnostic",
+    "/System/Volumes/FieldServiceRepair",
 }
 
 PARALLEL_DEPTH = 3

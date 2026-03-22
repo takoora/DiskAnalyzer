@@ -2,13 +2,14 @@ from PySide6.QtWidgets import QTableView, QHeaderView, QAbstractItemView, QMenu
 from PySide6.QtCore import Qt, Signal
 
 from disk_analyzer.models.file_table_model import FileTableModel
-from disk_analyzer.utils.finder import show_in_finder
+from disk_analyzer.utils.finder import show_in_finder, move_to_trash, permanent_delete, google_search, FILE_MANAGER_LABEL
 from disk_analyzer.views.color_delegate import ColorSwatchDelegate
 from disk_analyzer.views.progress_delegate import PercentBarDelegate
 
 
 class FileListView(QTableView):
     file_selected = Signal(object)  # FileNode
+    file_deleted = Signal(object)  # FileNode
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -69,6 +70,34 @@ class FileListView(QTableView):
         if not node:
             return
         menu = QMenu(self)
-        action = menu.addAction("Show in Finder")
+        action = menu.addAction(FILE_MANAGER_LABEL)
         action.triggered.connect(lambda: show_in_finder(node.path))
+        menu.addSeparator()
+        delete_action = menu.addAction("Move to Trash")
+        delete_action.triggered.connect(lambda: self._delete_node(node, permanent=False))
+        perm_delete_action = menu.addAction("Delete Permanently")
+        perm_delete_action.triggered.connect(lambda: self._delete_node(node, permanent=True))
+        menu.addSeparator()
+        google_action = menu.addAction(f'Google "{node.name}"')
+        google_action.triggered.connect(lambda: google_search(node.name))
         menu.exec(self.viewport().mapToGlobal(pos))
+
+    def _delete_node(self, node, permanent=False):
+        from PySide6.QtWidgets import QMessageBox
+        from disk_analyzer.utils.formatting import format_size
+        size = node.own_size
+        if permanent:
+            msg = (f"PERMANENTLY delete '{node.name}' ({format_size(size)})?\n\n"
+                   f"This cannot be undone!")
+            reply = QMessageBox.warning(self, "Confirm Permanent Delete", msg,
+                                        QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                if permanent_delete(node.path):
+                    self.file_deleted.emit(node)
+        else:
+            msg = f"Move '{node.name}' ({format_size(size)}) to Trash?"
+            reply = QMessageBox.question(self, "Confirm Delete", msg,
+                                         QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                if move_to_trash(node.path):
+                    self.file_deleted.emit(node)

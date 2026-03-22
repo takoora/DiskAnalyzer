@@ -5,15 +5,7 @@ from PySide6.QtWidgets import QWidget, QToolTip, QVBoxLayout, QLabel, QHBoxLayou
 from disk_analyzer.algorithms.squarify import squarify
 from disk_analyzer.utils.colors import color_for_extension, DIRECTORY_COLOR, darker_color
 from disk_analyzer.utils.formatting import format_size
-from disk_analyzer.utils.finder import show_in_finder
-
-import webbrowser
-from urllib.parse import quote_plus
-
-
-def _google_search(filename):
-    query = quote_plus(f'"{filename}"')
-    webbrowser.open(f"https://www.google.com/search?q={query}")
+from disk_analyzer.utils.finder import show_in_finder, move_to_trash, permanent_delete, google_search, FILE_MANAGER_LABEL
 
 
 MAX_DEPTH = 12
@@ -66,6 +58,7 @@ class BreadcrumbBar(QWidget):
 class TreemapWidget(QWidget):
     directory_selected = Signal(object)
     show_in_tree = Signal(object)  # FileNode - request to reveal in folder tree
+    file_deleted = Signal(object)  # FileNode - file was moved to trash
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -320,9 +313,33 @@ class _TreemapCanvas(QWidget):
         menu = QMenu(self)
         tree_action = menu.addAction("Show in Tree")
         tree_action.triggered.connect(lambda: self._treemap.show_in_tree.emit(node))
-        finder_action = menu.addAction("Show in Finder")
+        finder_action = menu.addAction(FILE_MANAGER_LABEL)
         finder_action.triggered.connect(lambda: show_in_finder(node.path))
         menu.addSeparator()
+        delete_action = menu.addAction("Move to Trash")
+        delete_action.triggered.connect(lambda: self._delete_node(node, permanent=False))
+        perm_delete_action = menu.addAction("Delete Permanently")
+        perm_delete_action.triggered.connect(lambda: self._delete_node(node, permanent=True))
+        menu.addSeparator()
         google_action = menu.addAction(f'Google "{node.name}"')
-        google_action.triggered.connect(lambda: _google_search(node.name))
+        google_action.triggered.connect(lambda: google_search(node.name))
         menu.exec(self.mapToGlobal(pos))
+
+    def _delete_node(self, node, permanent=False):
+        from PySide6.QtWidgets import QMessageBox
+        size = node.cumulative_size if node.is_dir else node.own_size
+        if permanent:
+            msg = (f"PERMANENTLY delete '{node.name}' ({format_size(size)})?\n\n"
+                   f"This cannot be undone!")
+            reply = QMessageBox.warning(self, "Confirm Permanent Delete", msg,
+                                        QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                if permanent_delete(node.path):
+                    self._treemap.file_deleted.emit(node)
+        else:
+            msg = f"Move '{node.name}' ({format_size(size)}) to Trash?"
+            reply = QMessageBox.question(self, "Confirm Delete", msg,
+                                         QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                if move_to_trash(node.path):
+                    self._treemap.file_deleted.emit(node)

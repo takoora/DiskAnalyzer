@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QFileDialog, QProgressBar,
     QTabWidget, QLabel, QStatusBar, QMenuBar, QSizePolicy,
-    QSplitter,
+    QSplitter, QToolButton, QMenu,
 )
 
 from disk_analyzer.models.scan_worker import ScanWorker, NUM_WORKERS
@@ -15,6 +15,9 @@ from disk_analyzer.views.treemap_widget import TreemapWidget
 from disk_analyzer.views.folder_tree_view import FolderTreeView
 from disk_analyzer.views.file_list_view import FileListView
 from disk_analyzer.views.file_type_view import FileTypeView
+from disk_analyzer.views.duplicate_view import DuplicateView
+from disk_analyzer.views.snapshot_view import SnapshotView
+from disk_analyzer.views.support_view import SupportView
 from disk_analyzer.utils.formatting import format_size, format_count
 
 
@@ -64,11 +67,23 @@ class MainWindow(QMainWindow):
         self._scan_btn.clicked.connect(self._start_scan)
         toolbar.addWidget(self._scan_btn)
 
-        self._cancel_btn = QPushButton("Cancel  ⌘.")
+        self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setShortcut(QKeySequence("Ctrl+."))
+        self._cancel_btn.setToolTip("Cancel the current scan (⌘.)")
         self._cancel_btn.setEnabled(False)
         self._cancel_btn.clicked.connect(self._cancel_scan)
         toolbar.addWidget(self._cancel_btn)
+
+        # Support/menu button (coffee cup icon)
+        self._menu_btn = QToolButton()
+        self._menu_btn.setText("☕")
+        self._menu_btn.setStyleSheet(
+            "QToolButton { font-size: 18px; padding: 2px 8px; }"
+            "QToolButton::menu-indicator { image: none; }"
+        )
+        self._menu_btn.setToolTip("Support & more")
+        self._menu_btn.setPopupMode(QToolButton.InstantPopup)
+        toolbar.addWidget(self._menu_btn)
 
         layout.addLayout(toolbar)
 
@@ -137,6 +152,18 @@ class MainWindow(QMainWindow):
         self._file_list = FileListView()
         self._tabs.addTab(self._file_list, "File List")
 
+        # --- Duplicates tab ---
+        self._duplicates = DuplicateView()
+        self._tabs.addTab(self._duplicates, "Duplicates")
+
+        # --- Snapshots tab ---
+        self._snapshots = SnapshotView()
+        self._tabs.addTab(self._snapshots, "Snapshots")
+
+        # --- Support tab ---
+        self._support = SupportView()
+        self._tabs.addTab(self._support, "☕ Support")
+
         layout.addWidget(self._tabs, 1)
 
         # Cross-highlighting signals
@@ -147,30 +174,64 @@ class MainWindow(QMainWindow):
         self._file_types.highlight_in_chart.connect(self._on_highlight_in_chart)
         self._file_types.reset_chart_highlight.connect(lambda: self._treemap.highlight_extension(None))
 
+        # Status bar indicators for background tasks
+        self._duplicates.search_started.connect(self._on_dup_started)
+        self._duplicates.search_progress.connect(self._on_dup_progress)
+        self._duplicates.search_finished.connect(self._on_dup_finished)
+
     def _setup_menu(self):
-        menubar = self.menuBar()
+        import webbrowser as _wb
 
-        file_menu = menubar.addMenu("File")
+        menu = QMenu(self)
 
+        # File section
         open_action = QAction("Open Folder...", self)
         open_action.setShortcut(QKeySequence.Open)
         open_action.triggered.connect(self._browse)
-        file_menu.addAction(open_action)
+        menu.addAction(open_action)
 
-        file_menu.addSeparator()
+        menu.addSeparator()
 
-        quit_action = QAction("Quit", self)
-        quit_action.setShortcut(QKeySequence.Quit)
-        quit_action.triggered.connect(self.close)
-        file_menu.addAction(quit_action)
-
-        view_menu = menubar.addMenu("View")
+        # View section
         for i in range(self._tabs.count()):
             action = QAction(self._tabs.tabText(i), self)
             action.setShortcut(f"Ctrl+{i + 1}")
             idx = i
             action.triggered.connect(lambda checked, idx=idx: self._tabs.setCurrentIndex(idx))
-            view_menu.addAction(action)
+            menu.addAction(action)
+
+        menu.addSeparator()
+
+        # Help section
+        sponsor_action = QAction("Sponsor on GitHub...", self)
+        sponsor_action.triggered.connect(
+            lambda: _wb.open("https://github.com/sponsors/takoora")
+        )
+        menu.addAction(sponsor_action)
+
+        coffee_action = QAction("☕ Buy Me a Coffee...", self)
+        coffee_action.triggered.connect(
+            lambda: _wb.open("https://buymeacoffee.com/takoora")
+        )
+        menu.addAction(coffee_action)
+
+        repo_action = QAction("GitHub Repository...", self)
+        repo_action.triggered.connect(
+            lambda: _wb.open("https://github.com/takoora/DiskAnalyzer")
+        )
+        menu.addAction(repo_action)
+
+        menu.addSeparator()
+
+        quit_action = QAction("Quit", self)
+        quit_action.setShortcut(QKeySequence.Quit)
+        quit_action.triggered.connect(self.close)
+        menu.addAction(quit_action)
+
+        self._menu_btn.setMenu(menu)
+
+        # Hide the native menu bar since we use the hamburger button
+        self.menuBar().setVisible(False)
 
     def _setup_statusbar(self):
         self._status_label = QLabel("Ready")
@@ -201,6 +262,30 @@ class MainWindow(QMainWindow):
         self._disk_usage_label.setStyleSheet("color: #aaa; font-size: 11px; padding-right: 4px;")
         self._disk_usage_label.setVisible(False)
         self.statusBar().addPermanentWidget(self._disk_usage_label)
+
+        # Duplicate finder status (visible from any tab)
+        self._dup_status_label = QLabel("")
+        self._dup_status_label.setStyleSheet("color: #ab47bc; font-size: 11px; padding-right: 4px;")
+        self._dup_status_label.setVisible(False)
+        self.statusBar().addPermanentWidget(self._dup_status_label)
+
+        self._dup_status_bar = QProgressBar()
+        self._dup_status_bar.setMaximum(1000)
+        self._dup_status_bar.setFixedWidth(100)
+        self._dup_status_bar.setFixedHeight(14)
+        self._dup_status_bar.setTextVisible(False)
+        self._dup_status_bar.setVisible(False)
+        self._dup_status_bar.setStyleSheet("""
+            QProgressBar { background: #2a2a2a; border: 1px solid #555; border-radius: 3px; }
+            QProgressBar::chunk { background: #ab47bc; border-radius: 2px; }
+        """)
+        self.statusBar().addPermanentWidget(self._dup_status_bar)
+
+        # Snapshot save status (visible from any tab)
+        self._snap_status_label = QLabel("")
+        self._snap_status_label.setStyleSheet("color: #4285F4; font-size: 11px; padding-right: 4px;")
+        self._snap_status_label.setVisible(False)
+        self.statusBar().addPermanentWidget(self._snap_status_label)
 
         self._elapsed_label = QLabel("")
         self._elapsed_label.setStyleSheet("color: #aaa; padding-right: 8px;")
@@ -238,6 +323,7 @@ class MainWindow(QMainWindow):
         self._folder_tree.clear()
         self._file_list.clear()
         self._file_types.clear()
+        self._duplicates.clear()
         self._root_node = None
         self._disk_usage_bar.setVisible(False)
         self._disk_usage_label.setVisible(False)
@@ -325,6 +411,8 @@ class MainWindow(QMainWindow):
         self._folder_tree.set_root(root_node)
         self._file_list.set_root(root_node)
         self._file_types.set_root(root_node)
+        self._duplicates.set_root(root_node)
+        self._snapshots.set_root(root_node, self._path_edit.text().strip())
 
     def _on_scan_error(self, error_msg):
         self._elapsed_timer.stop()
@@ -388,6 +476,22 @@ class MainWindow(QMainWindow):
         """Extension context menu: highlight files with this extension in treemap."""
         real_ext = ext if ext != "(no extension)" else ""
         self._treemap.highlight_extension(real_ext)
+
+    # --- Status bar indicators for background tasks ---
+
+    def _on_dup_started(self):
+        self._dup_status_label.setText("Finding duplicates...")
+        self._dup_status_label.setVisible(True)
+        self._dup_status_bar.setValue(0)
+        self._dup_status_bar.setVisible(True)
+
+    def _on_dup_progress(self, label, pct):
+        self._dup_status_label.setText(label)
+        self._dup_status_bar.setValue(pct)
+
+    def _on_dup_finished(self, summary):
+        self._dup_status_label.setText(summary)
+        self._dup_status_bar.setVisible(False)
 
     @staticmethod
     def _dominant_ext(dir_node):
