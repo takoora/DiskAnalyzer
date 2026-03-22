@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QMessageBox, QSizePolicy, QProgressBar,
 )
 
+from disk_analyzer.views.loading_overlay import LoadingOverlay
 from disk_analyzer.models.snapshot import (
     save_snapshot, load_snapshot, list_snapshots, compare_snapshots,
     ComparisonResult,
@@ -339,6 +340,7 @@ class SnapshotView(QWidget):
         self._root_path = None
         self._snapshot_map = {}  # combo index -> filepath
 
+        self._overlay = LoadingOverlay(self)
         self._setup_ui()
         self._refresh_snapshots()
 
@@ -526,6 +528,7 @@ class SnapshotView(QWidget):
         self._save_progress.setVisible(True)
         self._save_status.setText("Saving...")
         self._save_status.setVisible(True)
+        self._overlay.show_over(self, "Saving snapshot...")
 
         self._save_worker = _SaveWorker(self._root_node, self._root_path)
         self._save_worker.finished.connect(self._on_save_finished)
@@ -537,7 +540,9 @@ class SnapshotView(QWidget):
         self._save_progress.setVisible(False)
         self._save_status.setText("Saved!")
         self._save_status.setStyleSheet("color: #66bb6a; font-size: 11px;")
+        self._overlay.set_text("Refreshing snapshots...")
         self._refresh_snapshots()
+        self._overlay.hide_overlay()
         self.snapshot_saved.emit(filepath)
 
     def _on_save_error(self, error_msg):
@@ -545,6 +550,7 @@ class SnapshotView(QWidget):
         self._save_progress.setVisible(False)
         self._save_status.setText("Failed!")
         self._save_status.setStyleSheet("color: #ef5350; font-size: 11px;")
+        self._overlay.hide_overlay()
         QMessageBox.critical(self, "Save Error", f"Failed to save snapshot:\n{error_msg}")
 
     def _on_compare(self):
@@ -567,6 +573,7 @@ class SnapshotView(QWidget):
         self._compare_status.setText("Comparing...")
         self._compare_status.setStyleSheet("color: #888; font-size: 11px;")
         self._compare_status.setVisible(True)
+        self._overlay.show_over(self, "Loading and comparing snapshots...")
 
         self._compare_worker = _CompareWorker(old_path, new_path)
         self._compare_worker.finished.connect(self._on_compare_finished)
@@ -578,13 +585,18 @@ class SnapshotView(QWidget):
         self._compare_progress.setVisible(False)
         self._compare_status.setText("Done!")
         self._compare_status.setStyleSheet("color: #66bb6a; font-size: 11px;")
+        self._overlay.set_text("Rendering results...")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
         self._show_result(result)
+        self._overlay.hide_overlay()
 
     def _on_compare_error(self, error_msg):
         self._compare_btn.setEnabled(True)
         self._compare_progress.setVisible(False)
         self._compare_status.setText("Failed!")
         self._compare_status.setStyleSheet("color: #ef5350; font-size: 11px;")
+        self._overlay.hide_overlay()
         QMessageBox.warning(self, "Compare Error", f"Failed to compare snapshots:\n{error_msg}")
 
     def _show_result(self, result):
@@ -618,8 +630,17 @@ class SnapshotView(QWidget):
         self._grown_table.model().set_data(result.grown_files)
         self._shrunk_table.model().set_data(result.shrunk_files)
 
-        # Update tab labels with counts
-        self._tab_widget.setTabText(0, f"New Files ({len(result.new_files)})")
-        self._tab_widget.setTabText(1, f"Deleted Files ({len(result.deleted_files)})")
-        self._tab_widget.setTabText(2, f"Grown ({len(result.grown_files)})")
-        self._tab_widget.setTabText(3, f"Shrunk ({len(result.shrunk_files)})")
+        # Update tab labels with counts and total sizes
+        new_size = sum(s for _, s in result.new_files)
+        del_size = sum(s for _, s in result.deleted_files)
+        grown_size = sum(n - o for _, o, n in result.grown_files)
+        shrunk_size = sum(o - n for _, o, n in result.shrunk_files)
+
+        self._tab_widget.setTabText(
+            0, f"New Files ({len(result.new_files):,} — {format_size(new_size)})")
+        self._tab_widget.setTabText(
+            1, f"Deleted Files ({len(result.deleted_files):,} — {format_size(del_size)})")
+        self._tab_widget.setTabText(
+            2, f"Grown ({len(result.grown_files):,} — +{format_size(grown_size)})")
+        self._tab_widget.setTabText(
+            3, f"Shrunk ({len(result.shrunk_files):,} — -{format_size(shrunk_size)})")

@@ -28,31 +28,14 @@ show_in_finder = show_in_file_manager
 
 
 def move_to_trash(path):
-    """Move a file or folder to Trash/Recycle Bin. Returns True on success."""
-    if IS_MAC:
-        try:
-            subprocess.run(
-                ["osascript", "-e",
-                 f'tell application "Finder" to delete POSIX file "{path}"'],
-                check=True, capture_output=True,
-            )
-            return True
-        except subprocess.CalledProcessError:
-            return False
-    elif IS_WIN:
-        try:
-            from send2trash import send2trash
-            send2trash(path)
-            return True
-        except Exception:
-            return False
-    else:
-        try:
-            from send2trash import send2trash
-            send2trash(path)
-            return True
-        except Exception:
-            return False
+    """Move a file or folder to Trash/Recycle Bin. Returns True on success.
+    Uses send2trash for cross-platform support without password prompts."""
+    try:
+        from send2trash import send2trash
+        send2trash(path)
+        return True
+    except Exception:
+        return False
 
 
 def permanent_delete(path):
