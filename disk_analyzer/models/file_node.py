@@ -35,17 +35,28 @@ class FileNode:
         self.dir_count += child.dir_count
 
     def finalize(self):
-        """Post-order pass to compute cumulative_size, file_count, dir_count."""
-        if not self.is_dir:
-            return
-        self.cumulative_size = self.own_size
-        self.file_count = 0
-        self.dir_count = 1
-        for child in self.children:
-            child.finalize()
-            self.cumulative_size += child.cumulative_size
-            self.file_count += child.file_count
-            self.dir_count += child.dir_count
+        """Iterative post-order pass to compute cumulative_size, file_count, dir_count.
+        Uses an explicit stack to avoid recursion limits on deep directory trees."""
+        # Build post-order traversal
+        stack = [self]
+        post_order = []
+        while stack:
+            node = stack.pop()
+            post_order.append(node)
+            if node.is_dir:
+                stack.extend(node.children)
+
+        # Process in reverse (children before parents)
+        for node in reversed(post_order):
+            if not node.is_dir:
+                continue
+            node.cumulative_size = node.own_size
+            node.file_count = 0
+            node.dir_count = 1
+            for child in node.children:
+                node.cumulative_size += child.cumulative_size
+                node.file_count += child.file_count
+                node.dir_count += child.dir_count
 
     def sorted_children(self, reverse=True):
         return sorted(self.children, key=lambda c: c.cumulative_size, reverse=reverse)

@@ -5,7 +5,7 @@ import time
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication,
     QLineEdit, QPushButton, QFileDialog, QProgressBar,
     QTabWidget, QLabel, QStatusBar, QMenuBar, QSizePolicy,
     QSplitter, QToolButton, QMenu,
@@ -413,13 +413,34 @@ class MainWindow(QMainWindow):
             )
             self._disk_usage_label.setVisible(True)
 
-        # Populate all views
+        # Populate views one at a time, processing events between each
+        # to keep the UI responsive on large scans (Windows especially)
+        app = QApplication.instance()
+
+        self._status_label.setText("Loading treemap...")
+        app.processEvents()
         self._treemap.set_root(root_node)
+
+        self._status_label.setText("Loading folder tree...")
+        app.processEvents()
         self._folder_tree.set_root(root_node)
+
+        self._status_label.setText("Loading file list...")
+        app.processEvents()
         self._file_list.set_root(root_node)
+
+        self._status_label.setText("Loading file types...")
+        app.processEvents()
         self._file_types.set_root(root_node)
+
         self._duplicates.set_root(root_node)
         self._snapshots.set_root(root_node, self._path_edit.text().strip())
+
+        self._status_label.setText(
+            f"{format_count(root_node.file_count)} files, "
+            f"{format_count(root_node.dir_count)} folders, "
+            f"Total: {format_size(root_node.cumulative_size)}"
+        )
 
     def _on_scan_error(self, error_msg):
         self._elapsed_timer.stop()
