@@ -5,7 +5,8 @@ from PySide6.QtWidgets import QWidget, QToolTip, QVBoxLayout, QLabel, QHBoxLayou
 from disk_analyzer.algorithms.squarify import squarify
 from disk_analyzer.utils.colors import color_for_extension, DIRECTORY_COLOR, darker_color, text_color_for_bg
 from disk_analyzer.utils.formatting import format_size
-from disk_analyzer.utils.finder import show_in_finder, move_to_trash, permanent_delete, google_search, FILE_MANAGER_LABEL
+from disk_analyzer.utils.finder import show_in_finder, google_search, FILE_MANAGER_LABEL
+from disk_analyzer.utils.delete_helper import confirm_and_delete
 
 
 MAX_DEPTH = 12
@@ -327,20 +328,6 @@ class _TreemapCanvas(QWidget):
         menu.exec(self.mapToGlobal(pos))
 
     def _delete_node(self, node, permanent=False):
-        from PySide6.QtWidgets import QMessageBox
         size = node.cumulative_size if node.is_dir else node.own_size
-        if permanent:
-            msg = (f"PERMANENTLY delete '{node.name}' ({format_size(size)})?\n\n"
-                   f"This cannot be undone!")
-            reply = QMessageBox.warning(self, "Confirm Permanent Delete", msg,
-                                        QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                if permanent_delete(node.path):
-                    self._treemap.file_deleted.emit(node)
-        else:
-            msg = f"Move '{node.name}' ({format_size(size)}) to Trash?"
-            reply = QMessageBox.question(self, "Confirm Delete", msg,
-                                         QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                if move_to_trash(node.path):
-                    self._treemap.file_deleted.emit(node)
+        if confirm_and_delete(self, node.name, node.path, size, permanent):
+            self._treemap.file_deleted.emit(node)

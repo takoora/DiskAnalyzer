@@ -5,7 +5,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QModelIndex, Signal
 from PySide6.QtGui import QColor, QStandardItemModel, QStandardItem, QAction, QFont
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton, QApplication,
     QProgressBar, QLabel, QTreeView, QHeaderView, QMenu,
     QMessageBox, QAbstractItemView, QSizePolicy, QDialog,
     QRadioButton, QButtonGroup, QScrollArea, QFrame, QGridLayout,
@@ -17,6 +17,7 @@ from disk_analyzer.models.duplicate_finder import DuplicateFinder, MatchStrategy
 from disk_analyzer.utils.colors import _HASH_PALETTE
 from disk_analyzer.utils.formatting import format_size, format_count
 from disk_analyzer.utils.finder import show_in_finder, move_to_trash, permanent_delete, google_search, FILE_MANAGER_LABEL
+from disk_analyzer.utils.delete_helper import confirm_and_delete, bulk_delete_with_overlay
 
 
 # Alternating group background colors (semi-transparent for dark theme)
@@ -429,30 +430,14 @@ class DuplicateView(QWidget):
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     def _trash_file(self, fnode, item):
-        reply = QMessageBox.question(
-            self, "Move to Trash",
-            f"Move this file to Trash?\n\n{fnode.path}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            if move_to_trash(fnode.path):
-                self._remove_item_from_tree(item)
-                self.file_deleted.emit()
-            else:
-                QMessageBox.warning(self, "Error", f"Could not move to Trash:\n{fnode.path}")
+        if confirm_and_delete(self, fnode.name, fnode.path, fnode.own_size, permanent=False):
+            self._remove_item_from_tree(item)
+            self.file_deleted.emit()
 
     def _permanently_delete(self, fnode, item):
-        reply = QMessageBox.warning(
-            self, "Delete Permanently",
-            f"Permanently delete this file? This cannot be undone.\n\n{fnode.path}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            if permanent_delete(fnode.path):
-                self._remove_item_from_tree(item)
-                self.file_deleted.emit()
-            else:
-                QMessageBox.warning(self, "Error", f"Could not delete:\n{fnode.path}")
+        if confirm_and_delete(self, fnode.name, fnode.path, fnode.own_size, permanent=True):
+            self._remove_item_from_tree(item)
+            self.file_deleted.emit()
 
     def _remove_item_from_tree(self, item):
         """Remove a file item from the tree. If group becomes < 2, remove the group."""
@@ -535,6 +520,10 @@ class DuplicateView(QWidget):
         if reply != QMessageBox.Yes:
             return
 
+        from disk_analyzer.views.loading_overlay import LoadingOverlay
+        overlay = LoadingOverlay()
+        overlay.show_over(self, "Deleting duplicates...")
+
         deleted = 0
         failed = 0
 
@@ -543,7 +532,6 @@ class DuplicateView(QWidget):
             group_item = self._model.item(row, COL_NAME)
             if group_item is None:
                 continue
-            # Delete children in reverse order, skipping the first (index 0)
             for c in range(group_item.rowCount() - 1, 0, -1):
                 child = group_item.child(c, COL_NAME)
                 if child is None:
@@ -551,16 +539,18 @@ class DuplicateView(QWidget):
                 fnode = child.data(FILE_NODE_ROLE)
                 if fnode is None:
                     continue
+                deleted += 1
+                overlay.set_text(f"Deleting ({deleted:,}/{to_delete:,}): {fnode.name}")
+                QApplication.processEvents()
                 if move_to_trash(fnode.path):
                     group_item.removeRow(c)
-                    deleted += 1
                 else:
                     failed += 1
 
-            # If group has fewer than 2 children, remove it
             if group_item.rowCount() < 2:
                 self._model.removeRow(row)
 
+        overlay.hide_overlay()
         self._update_summary()
         self.file_deleted.emit()
 
@@ -756,13 +746,19 @@ class _InteractiveDeleteDialog(QDialog):
 
         keep_fnode = checked.property("fnode")
         group = self._groups[self._current]
+        to_delete = [f for f in group if f is not keep_fnode]
 
-        for fnode in group:
-            if fnode is keep_fnode:
-                continue
+        from disk_analyzer.views.loading_overlay import LoadingOverlay
+        overlay = LoadingOverlay()
+        overlay.show_over(self, "Deleting duplicates...")
+
+        for i, fnode in enumerate(to_delete):
+            overlay.set_text(f"Deleting ({i + 1}/{len(to_delete)}): {fnode.name}")
+            QApplication.processEvents()
             if move_to_trash(fnode.path):
                 self._deleted.append(fnode)
 
+        overlay.hide_overlay()
         self._current += 1
         self._load_group()
 

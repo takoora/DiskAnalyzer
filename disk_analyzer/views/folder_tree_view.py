@@ -3,7 +3,8 @@ from PySide6.QtWidgets import QTreeView, QHeaderView, QMenu, QApplication
 from PySide6.QtGui import QAction, QColor, QIcon
 
 from disk_analyzer.utils.formatting import format_size, format_percent, calc_percent
-from disk_analyzer.utils.finder import show_in_finder, move_to_trash, permanent_delete, google_search, FILE_MANAGER_LABEL
+from disk_analyzer.utils.finder import show_in_finder, google_search, FILE_MANAGER_LABEL
+from disk_analyzer.utils.delete_helper import confirm_and_delete
 from disk_analyzer.views.progress_delegate import PercentBarDelegate
 
 
@@ -244,20 +245,6 @@ class FolderTreeView(QTreeView):
         menu.exec(self.viewport().mapToGlobal(pos))
 
     def _delete_node(self, node, permanent=False):
-        from PySide6.QtWidgets import QMessageBox
         size = node.cumulative_size if node.is_dir else node.own_size
-        if permanent:
-            msg = (f"PERMANENTLY delete '{node.name}' ({format_size(size)})?\n\n"
-                   f"This cannot be undone!")
-            reply = QMessageBox.warning(self, "Confirm Permanent Delete", msg,
-                                        QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                if permanent_delete(node.path):
-                    self.file_deleted.emit(node)
-        else:
-            msg = f"Move '{node.name}' ({format_size(size)}) to Trash?"
-            reply = QMessageBox.question(self, "Confirm Delete", msg,
-                                         QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                if move_to_trash(node.path):
-                    self.file_deleted.emit(node)
+        if confirm_and_delete(self, node.name, node.path, size, permanent):
+            self.file_deleted.emit(node)
